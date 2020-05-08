@@ -180,7 +180,7 @@ int main(int argc, char **argv) {
 	IOT_DEBUG("clientCRT %s", clientCRT);
 	IOT_DEBUG("clientKey %s", clientKey);
 
-	parseInputArgsForConnectParams(argc, argv);
+	// parseInputArgsForConnectParams(argc, argv);
 
 	// initialize the mqtt client
 	AWS_IoT_Client mqttClient;
