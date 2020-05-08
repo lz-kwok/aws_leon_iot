@@ -27,6 +27,7 @@ IOT_SRC_FILES += $(shell find $(IOT_CLIENT_DIR)/src/ -name '*.c')
 IOT_SRC_FILES += $(shell find $(IOT_CLIENT_DIR)/external_libs/jsmn -name '*.c')
 IOT_SRC_FILES += $(shell find $(PLATFORM_DIR)/ -name '*.c')
 IOT_SRC_FILES += $(shell find $(PLATFORM_COMMON_DIR)/ -name '*.c')
+IOT_SRC_FILES += $(shell find $(IOT_CLIENT_DIR)/third-part/cJson/ -name '*.c')
 
 #TLS - mbedtls
 MBEDTLS_DIR = $(IOT_CLIENT_DIR)/external_libs/mbedTLS
