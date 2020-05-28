@@ -883,7 +883,7 @@ int main( int argc, char *argv[] )
         else if( strcmp( p, "auth_mode" ) == 0 )
         {
             if( strcmp( q, "none" ) == 0 )
-                opt.auth_mode = MBEDTLS_SSL_VERIFY_NONE;
+                opt.auth_mode = MBEDTLS_SSL_VERIFY_NONE;//MBEDTLS_SSL_VERIFY_NONE
             else if( strcmp( q, "optional" ) == 0 )
                 opt.auth_mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
             else if( strcmp( q, "required" ) == 0 )

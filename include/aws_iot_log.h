@@ -35,6 +35,7 @@ extern "C" {
 #include <stdio.h>
 #include <stdlib.h>
 
+
 /**
  * @brief Debug level logging macro.
  *
@@ -49,6 +50,11 @@ extern "C" {
 	}
 #else
 #define IOT_DEBUG(...)
+	{\
+	printf("DEBUG:   %s L#%d ", __func__, __LINE__);  \
+	printf(__VA_ARGS__); \
+	printf("\n"); \
+	}
 #endif
 
 /**

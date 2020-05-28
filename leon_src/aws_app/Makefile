@@ -2,7 +2,8 @@
 .prevent_execution:
 	exit 0
 
-CC = gcc
+# CC = gcc
+CC = /armcc/gcc-4.6.2-glibc-2.13-linaro-multilib-2011.12/fsl-linaro-toolchain/bin/arm-fsl-linux-gnueabi-gcc
 
 #remove @ for no make command prints
 DEBUG = @
@@ -22,6 +23,8 @@ IOT_INCLUDE_DIRS += -I $(IOT_CLIENT_DIR)/include
 IOT_INCLUDE_DIRS += -I $(IOT_CLIENT_DIR)/external_libs/jsmn
 IOT_INCLUDE_DIRS += -I $(PLATFORM_COMMON_DIR)
 IOT_INCLUDE_DIRS += -I $(PLATFORM_DIR)
+IOT_INCLUDE_DIRS += -I $(IOT_CLIENT_DIR)/third-part/cJson/
+IOT_INCLUDE_DIRS += -I $(IOT_CLIENT_DIR)/external_libs/leonIoT/include
 
 IOT_SRC_FILES += $(shell find $(IOT_CLIENT_DIR)/src/ -name '*.c')
 IOT_SRC_FILES += $(shell find $(IOT_CLIENT_DIR)/external_libs/jsmn -name '*.c')
@@ -37,6 +40,7 @@ EXTERNAL_LIBS += -L$(TLS_LIB_DIR)
 LD_FLAG += -Wl,-rpath,$(TLS_LIB_DIR)
 LD_FLAG += -ldl $(TLS_LIB_DIR)/libmbedtls.a $(TLS_LIB_DIR)/libmbedcrypto.a $(TLS_LIB_DIR)/libmbedx509.a
 
+EXT_LIB = -Wl,-rpath=$(IOT_CLIENT_DIR)/external_libs/leonIoT,--disable-new-dtags -L$(IOT_CLIENT_DIR)/external_libs/leonIoT -lleoniot
 
 #Aggregate all include and src directories
 INCLUDE_ALL_DIRS += $(IOT_INCLUDE_DIRS)
@@ -52,7 +56,7 @@ LOG_FLAGS += -DENABLE_IOT_INFO
 LOG_FLAGS += -DENABLE_IOT_WARN
 LOG_FLAGS += -DENABLE_IOT_ERROR
 
-COMPILER_FLAGS += -g 
+COMPILER_FLAGS += -g -Wl,-Bdynamic -lpthread -ldl -lstdc++
 COMPILER_FLAGS += $(LOG_FLAGS)
 #If the processor is big endian uncomment the compiler flag
 #COMPILER_FLAGS += -DREVERSED
@@ -60,7 +64,7 @@ COMPILER_FLAGS += $(LOG_FLAGS)
 MBED_TLS_MAKE_CMD = $(MAKE) -C $(MBEDTLS_DIR)
 
 PRE_MAKE_CMD = $(MBED_TLS_MAKE_CMD)
-MAKE_CMD = $(CC) $(SRC_FILES) $(COMPILER_FLAGS) -o $(APP_NAME) $(LD_FLAG) $(EXTERNAL_LIBS) $(INCLUDE_ALL_DIRS)
+MAKE_CMD = $(CC) $(SRC_FILES) $(COMPILER_FLAGS) -o $(APP_NAME) $(LD_FLAG) $(EXTERNAL_LIBS) $(EXT_LIB) $(INCLUDE_ALL_DIRS) 
 
 all:
 	$(PRE_MAKE_CMD)
@@ -70,3 +74,4 @@ all:
 clean:
 	rm -f $(APP_DIR)/$(APP_NAME)
 	$(MBED_TLS_MAKE_CMD) clean
+	$(MBED_TLS_MAKE_CMD) CC=$(CC)

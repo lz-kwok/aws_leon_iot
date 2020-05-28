@@ -17,6 +17,20 @@
  * @file shadow_sample.c
  * @brief A simple connected window example demonstrating the use of Thing Shadow
  */
+#include <unistd.h>
+#include <sys/io.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <time.h>
+
+#include <netinet/in.h>  
+#include <arpa/inet.h>  
+#include <net/if.h>
+#include <linux/sockios.h>
+
+#include <signal.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,12 +38,17 @@
 #include <unistd.h>
 #include <string.h>
 #include <limits.h>
-
+#include <errno.h>
 #include "aws_iot_config.h"
 #include "aws_iot_log.h"
 #include "aws_iot_version.h"
 #include "aws_iot_mqtt_client_interface.h"
 #include "aws_iot_shadow_interface.h"
+
+#include "cJSON.h"
+#include "leonIoT_API.h"
+
+int send_type = 0;
 
 /*!
  * The goal of this sample application is to demonstrate the capabilities of shadow.
@@ -98,7 +117,12 @@ void windowActuate_Callback(const char *pJsonString, uint32_t JsonStringDataLen,
 	IOT_UNUSED(JsonStringDataLen);
 
 	if(pContext != NULL) {
-		IOT_INFO("Delta - Window state changed to %d", *(bool *) (pContext->pData));
+		IOT_INFO("Delta - pressureShow state changed to %d", *(bool *) (pContext->pData));
+		if(*(bool *) (pContext->pData) == true){
+			send_type = 0;
+		}else{
+			send_type = 1;
+		}
 	}
 }
 
@@ -140,7 +164,29 @@ void parseInputArgsForConnectParams(int argc, char **argv) {
 
 }
 
+int Connect_Server(int fd,struct sockaddr_in remote_addr)
+{
+	int ret = connect(fd, (struct sockaddr*)&remote_addr, sizeof(remote_addr));
+	if (ret != 0){
+		if ((errno == EINPROGRESS)||(errno == EALREADY)){
+			return 0;
+		}else if(errno == EISCONN){
+			return 2;
+		}else if(errno == EHOSTUNREACH ){
+			IOT_INFO("%s: No route to host", __func__);
+			return 1;
+		}
+		IOT_INFO("connect_tbox_server ret: %d", errno);
+		return -1;
+	}
+
+	return 2; 	//connect ok
+}
+
+
 int main(int argc, char **argv) {
+	static data_air AirData;
+	leonIoT_init();
 	IoT_Error_t rc = FAILURE;
 	int32_t i = 0;
 
@@ -148,13 +194,15 @@ int main(int argc, char **argv) {
 	size_t sizeOfJsonDocumentBuffer = sizeof(JsonDocumentBuffer) / sizeof(JsonDocumentBuffer[0]);
 	char *pJsonStringToUpdate;
 	float temperature = 0.0;
+	float humi = 0.0;
+	int press = 0;
 
 	bool windowOpen = false;
 	jsonStruct_t windowActuator;
 	windowActuator.cb = windowActuate_Callback;
 	windowActuator.pData = &windowOpen;
 	windowActuator.dataLength = sizeof(bool);
-	windowActuator.pKey = "windowOpen";
+	windowActuator.pKey = "pressureShow";
 	windowActuator.type = SHADOW_JSON_BOOL;
 
 	jsonStruct_t temperatureHandler;
@@ -163,6 +211,20 @@ int main(int argc, char **argv) {
 	temperatureHandler.pData = &temperature;
 	temperatureHandler.dataLength = sizeof(float);
 	temperatureHandler.type = SHADOW_JSON_FLOAT;
+
+	jsonStruct_t humiHandler;
+	humiHandler.cb = NULL;
+	humiHandler.pKey = "humidity";
+	humiHandler.pData = &humi;
+	humiHandler.dataLength = sizeof(float);
+	humiHandler.type = SHADOW_JSON_FLOAT;
+
+	jsonStruct_t pressureHandler;
+	pressureHandler.cb = NULL;
+	pressureHandler.pKey = "pressure";
+	pressureHandler.pData = &press;
+	pressureHandler.dataLength = sizeof(int);
+	pressureHandler.type = SHADOW_JSON_UINT16;
 
 	char rootCA[PATH_MAX + 1];
 	char clientCRT[PATH_MAX + 1];
@@ -175,6 +237,11 @@ int main(int argc, char **argv) {
 	snprintf(rootCA, PATH_MAX + 1, "%s/%s/%s", CurrentWD, certDirectory, AWS_IOT_ROOT_CA_FILENAME);
 	snprintf(clientCRT, PATH_MAX + 1, "%s/%s/%s", CurrentWD, certDirectory, AWS_IOT_CERTIFICATE_FILENAME);
 	snprintf(clientKey, PATH_MAX + 1, "%s/%s/%s", CurrentWD, certDirectory, AWS_IOT_PRIVATE_KEY_FILENAME);
+	// snprintf(rootCA, PATH_MAX + 1, "%s/%s", "/usr/certs", AWS_IOT_ROOT_CA_FILENAME);
+	// snprintf(clientCRT, PATH_MAX + 1, "%s/%s", "/usr/certs", AWS_IOT_CERTIFICATE_FILENAME);
+	// snprintf(clientKey, PATH_MAX + 1, "%s/%s", "/usr/certs", AWS_IOT_PRIVATE_KEY_FILENAME);
+
+
 
 	IOT_DEBUG("rootCA %s", rootCA);
 	IOT_DEBUG("clientCRT %s", clientCRT);
@@ -240,13 +307,24 @@ int main(int argc, char **argv) {
 			continue;
 		}
 		IOT_INFO("\n=======================================================================================\n");
-		IOT_INFO("On Device: window state %s", windowOpen ? "true" : "false");
-		simulateRoomTemperature(&temperature);
+		IOT_INFO("On Device: pressureShow state %s", windowOpen ? "true" : "false");
+		
+		// simulateRoomTemperature(&temperature);
+		AirData = GetAirData();
+		temperature = AirData.temp;
+		humi = AirData.humi;
+		press = AirData.press;
 
 		rc = aws_iot_shadow_init_json_document(JsonDocumentBuffer, sizeOfJsonDocumentBuffer);
 		if(SUCCESS == rc) {
-			rc = aws_iot_shadow_add_reported(JsonDocumentBuffer, sizeOfJsonDocumentBuffer, 2, &temperatureHandler,
+			if(send_type == 0){
+				rc = aws_iot_shadow_add_reported(JsonDocumentBuffer, sizeOfJsonDocumentBuffer, 3, &temperatureHandler,
+											 &humiHandler,&windowActuator);
+			}else{
+				rc = aws_iot_shadow_add_reported(JsonDocumentBuffer, sizeOfJsonDocumentBuffer, 2, &pressureHandler,
 											 &windowActuator);
+			}
+			
 			if(SUCCESS == rc) {
 				rc = aws_iot_finalize_json_document(JsonDocumentBuffer, sizeOfJsonDocumentBuffer);
 				if(SUCCESS == rc) {
