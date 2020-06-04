@@ -48,33 +48,23 @@
 #include "cJSON.h"
 #include "leonIoT_API.h"
 
+
+typedef struct {
+	int  mqtt_status; 					/* AWS Platform  Status */
+	
+	Thread_t thr_sync_proc;
+	property_node_t proplist[MAX_PROPERTY_NUMS]; /*used for property iteator */	
+	
+	AWS_IoT_Client mqttClient;
+}AWS_Manager;
+static AWS_Manager aManager;
+
+static int aws_syncproc_main(void* param);
+
+
 int send_type = 0;
 
-/*!
- * The goal of this sample application is to demonstrate the capabilities of shadow.
- * This device(say Connected Window) will open the window of a room based on temperature
- * It can report to the Shadow the following parameters:
- *  1. temperature of the room (double)
- *  2. status of the window (open or close)
- * It can act on commands from the cloud. In this case it will open or close the window based on the json object "windowOpen" data[open/close]
- *
- * The two variables from a device's perspective are double temperature and bool windowOpen
- * The device needs to act on only on windowOpen variable, so we will create a primitiveJson_t object with callback
- The Json Document in the cloud will be
- {
- "reported": {
- "temperature": 0,
- "windowOpen": false
- },
- "desired": {
- "windowOpen": false
- }
- }
- */
 
-#define ROOMTEMPERATURE_UPPERLIMIT 32.0f
-#define ROOMTEMPERATURE_LOWERLIMIT 25.0f
-#define STARTING_ROOMTEMPERATURE ROOMTEMPERATURE_LOWERLIMIT
 
 #define MAX_LENGTH_OF_UPDATE_JSON_BUFFER 200
 
@@ -84,17 +74,7 @@ static char HostAddress[HOST_ADDRESS_SIZE] = AWS_IOT_MQTT_HOST;
 static uint32_t port = AWS_IOT_MQTT_PORT;
 static uint8_t numPubs = 5;
 
-static void simulateRoomTemperature(float *pRoomTemperature) {
-	static float deltaChange;
 
-	if(*pRoomTemperature >= ROOMTEMPERATURE_UPPERLIMIT) {
-		deltaChange = -0.5f;
-	} else if(*pRoomTemperature <= ROOMTEMPERATURE_LOWERLIMIT) {
-		deltaChange = 0.5f;
-	}
-
-	*pRoomTemperature += deltaChange;
-}
 
 void ShadowUpdateStatusCallback(const char *pThingName, ShadowActions_t action, Shadow_Ack_Status_t status,
 								const char *pReceivedJsonDocument, void *pContextData) {
@@ -126,66 +106,11 @@ void windowActuate_Callback(const char *pJsonString, uint32_t JsonStringDataLen,
 	}
 }
 
-void parseInputArgsForConnectParams(int argc, char **argv) {
-	int opt;
-
-	while(-1 != (opt = getopt(argc, argv, "h:p:c:n:"))) {
-		switch(opt) {
-			case 'h':
-				strncpy(HostAddress, optarg, HOST_ADDRESS_SIZE);
-				IOT_DEBUG("Host %s", optarg);
-				break;
-			case 'p':
-				port = atoi(optarg);
-				IOT_DEBUG("arg %s", optarg);
-				break;
-			case 'c':
-				strncpy(certDirectory, optarg, PATH_MAX + 1);
-				IOT_DEBUG("cert root directory %s", optarg);
-				break;
-			case 'n':
-				numPubs = atoi(optarg);
-				IOT_DEBUG("num pubs %s", optarg);
-				break;
-			case '?':
-				if(optopt == 'c') {
-					IOT_ERROR("Option -%c requires an argument.", optopt);
-				} else if(isprint(optopt)) {
-					IOT_WARN("Unknown option `-%c'.", optopt);
-				} else {
-					IOT_WARN("Unknown option character `\\x%x'.", optopt);
-				}
-				break;
-			default:
-				IOT_ERROR("ERROR in command line argument parsing");
-				break;
-		}
-	}
-
-}
-
-int Connect_Server(int fd,struct sockaddr_in remote_addr)
-{
-	int ret = connect(fd, (struct sockaddr*)&remote_addr, sizeof(remote_addr));
-	if (ret != 0){
-		if ((errno == EINPROGRESS)||(errno == EALREADY)){
-			return 0;
-		}else if(errno == EISCONN){
-			return 2;
-		}else if(errno == EHOSTUNREACH ){
-			IOT_INFO("%s: No route to host", __func__);
-			return 1;
-		}
-		IOT_INFO("connect_tbox_server ret: %d", errno);
-		return -1;
-	}
-
-	return 2; 	//connect ok
-}
 
 
 int main(int argc, char **argv) {
 	static data_air AirData;
+	memset(&aManager,0x0,sizeof(aManager));
 	leonIoT_init();
 	IoT_Error_t rc = FAILURE;
 	int32_t i = 0;
@@ -242,10 +167,7 @@ int main(int argc, char **argv) {
 	IOT_DEBUG("clientCRT %s", clientCRT);
 	IOT_DEBUG("clientKey %s", clientKey);
 
-	// parseInputArgsForConnectParams(argc, argv);
-
 	// initialize the mqtt client
-	AWS_IoT_Client mqttClient;
 
 	ShadowInitParameters_t sp = ShadowInitParametersDefault;
 	sp.pHost = AWS_IOT_MQTT_HOST;
@@ -257,7 +179,7 @@ int main(int argc, char **argv) {
 	sp.disconnectHandler = NULL;
 
 	IOT_INFO("Shadow Init");
-	rc = aws_iot_shadow_init(&mqttClient, &sp);
+	rc = aws_iot_shadow_init(&aManager.mqttClient, &sp);
 	if(SUCCESS != rc) {
 		IOT_ERROR("Shadow Connection Error");
 		return rc;
@@ -269,7 +191,7 @@ int main(int argc, char **argv) {
 	scp.mqttClientIdLen = (uint16_t) strlen(AWS_IOT_MQTT_CLIENT_ID);
 
 	IOT_INFO("Shadow Connect");
-	rc = aws_iot_shadow_connect(&mqttClient, &scp);
+	rc = aws_iot_shadow_connect(&aManager.mqttClient, &scp);
 	if(SUCCESS != rc) {
 		IOT_ERROR("Shadow Connection Error");
 		return rc;
@@ -280,27 +202,33 @@ int main(int argc, char **argv) {
 	 *  #AWS_IOT_MQTT_MIN_RECONNECT_WAIT_INTERVAL
 	 *  #AWS_IOT_MQTT_MAX_RECONNECT_WAIT_INTERVAL
 	 */
-	rc = aws_iot_shadow_set_autoreconnect_status(&mqttClient, true);
+	rc = aws_iot_shadow_set_autoreconnect_status(&aManager.mqttClient, true);
 	if(SUCCESS != rc) {
 		IOT_ERROR("Unable to set Auto Reconnect to true - %d", rc);
 		return rc;
 	}
 
-	rc = aws_iot_shadow_register_delta(&mqttClient, &windowActuator);
+	rc = aws_iot_shadow_register_delta(&aManager.mqttClient, &windowActuator);
 
 	if(SUCCESS != rc) {
 		IOT_ERROR("Shadow Register Delta Error");
 	}
-	temperature = STARTING_ROOMTEMPERATURE;
+	aManager.mqtt_status = AWS_STATUS_MQTT_CONNECTION;
+	aManager.thr_sync_proc = hal_ThreadCreate(aws_syncproc_main, NULL, 0x1000);
+	if (aManager.thr_sync_proc == NULL) {
+		IOT_ERROR("%s thread create failed",__func__);
+		return -1;
+	}
 
 	// loop and publish a change in temperature
 	while(NETWORK_ATTEMPTING_RECONNECT == rc || NETWORK_RECONNECTED == rc || SUCCESS == rc) {
-		rc = aws_iot_shadow_yield(&mqttClient, 200);
+		rc = aws_iot_shadow_yield(&aManager.mqttClient, 200);
 		if(NETWORK_ATTEMPTING_RECONNECT == rc) {
 			sleep(1);
 			// If the client is attempting to reconnect we will skip the rest of the loop.
 			continue;
 		}
+		aManager.mqtt_status = AWS_STATUS_MQTT_CONNECTED;
 		IOT_INFO("\n=======================================================================================\n");
 		IOT_INFO("On Device: pressureShow state %s", windowOpen ? "true" : "false");
 		
@@ -324,7 +252,7 @@ int main(int argc, char **argv) {
 				rc = aws_iot_finalize_json_document(JsonDocumentBuffer, sizeOfJsonDocumentBuffer);
 				if(SUCCESS == rc) {
 					IOT_INFO("Update Shadow: %s", JsonDocumentBuffer);
-					rc = aws_iot_shadow_update(&mqttClient, AWS_IOT_MY_THING_NAME, JsonDocumentBuffer,
+					rc = aws_iot_shadow_update(&aManager.mqttClient, AWS_IOT_MY_THING_NAME, JsonDocumentBuffer,
 											   ShadowUpdateStatusCallback, NULL, 4, true);
 				}
 			}
@@ -338,11 +266,25 @@ int main(int argc, char **argv) {
 	}
 
 	IOT_INFO("Disconnecting");
-	rc = aws_iot_shadow_disconnect(&mqttClient);
+	rc = aws_iot_shadow_disconnect(&aManager.mqttClient);
+	aManager.mqtt_status = AWS_STATUS_MQTT_DISCONNECTED;
 
 	if(SUCCESS != rc) {
 		IOT_ERROR("Disconnect error %d", rc);
 	}
 
 	return rc;
+}
+
+
+static int aws_syncproc_main(void* param)
+{
+	while (1)
+	{
+		HAL_SleepMs(1000);
+		if(aManager.mqtt_status == AWS_STATUS_MQTT_CONNECTED){
+			
+		}
+	}
+	
 }
