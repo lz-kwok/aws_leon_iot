@@ -237,11 +237,6 @@ int main(int argc, char **argv) {
 	snprintf(rootCA, PATH_MAX + 1, "%s/%s/%s", CurrentWD, certDirectory, AWS_IOT_ROOT_CA_FILENAME);
 	snprintf(clientCRT, PATH_MAX + 1, "%s/%s/%s", CurrentWD, certDirectory, AWS_IOT_CERTIFICATE_FILENAME);
 	snprintf(clientKey, PATH_MAX + 1, "%s/%s/%s", CurrentWD, certDirectory, AWS_IOT_PRIVATE_KEY_FILENAME);
-	// snprintf(rootCA, PATH_MAX + 1, "%s/%s", "/usr/certs", AWS_IOT_ROOT_CA_FILENAME);
-	// snprintf(clientCRT, PATH_MAX + 1, "%s/%s", "/usr/certs", AWS_IOT_CERTIFICATE_FILENAME);
-	// snprintf(clientKey, PATH_MAX + 1, "%s/%s", "/usr/certs", AWS_IOT_PRIVATE_KEY_FILENAME);
-
-
 
 	IOT_DEBUG("rootCA %s", rootCA);
 	IOT_DEBUG("clientCRT %s", clientCRT);
